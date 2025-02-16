@@ -5,9 +5,13 @@ with open(sys.argv[0]) as f:
 import uuid
 import time
 import glob
+import json
+import yaml
+import argparse
 import subprocess
 import contextlib
 from dataclasses import dataclass
+import wandb
 
 import torch
 torch.empty(1, device='cuda', requires_grad=True).backward()
@@ -385,12 +389,55 @@ class Hyperparameters:
     num_iterations = 1390 # number of iterations to run
     cooldown_frac = 0.4 # fraction of training spent cooling down the learning rate
     bf16_embeds = True
+    optimizer_name = 'muon'  # Options: 'muon', 'adam', 'adamw', 'sgd'
+    optimizer_config_path = None  # Path to optimizer config YAML file
     # evaluation and logging
-    val_loss_every = 125 # every how many steps to evaluate val loss? 0 for only at the end
+    val_loss_every = 20 # every how many steps to evaluate val loss? 0 for only at the end
     val_tokens = 10485760 # how many tokens of validation data? it's important to keep this fixed for consistent comparisons
     # implementation
     save_checkpoint = False
+    # wandb config
+    wandb_project = "nanogpt-training"
+    wandb_entity = None  # set to your wandb username or team name, or leave as None
+
+    def load_optimizer_config(self):
+        """Load optimizer configuration from YAML file."""
+        if self.optimizer_config_path:
+            config_path = self.optimizer_config_path
+        else:
+            config_path = f'configs/optimizers/{self.optimizer_name}.yaml'
+        
+        try:
+            with open(config_path, 'r') as f:
+                return yaml.safe_load(f)
+        except FileNotFoundError:
+            print(f"Warning: Config file {config_path} not found. Using default configuration.")
+            return {}
+
+    def update_from_args(self, args):
+        """Update hyperparameters from command line arguments."""
+        if args.optimizer:
+            self.optimizer_name = args.optimizer
+        if args.config_path:
+            self.optimizer_config_path = args.config_path
+        if args.config:
+            config_override = json.loads(args.config)
+            base_config = self.load_optimizer_config()
+            base_config.update(config_override)
+            self.optimizer_config = base_config
+        else:
+            self.optimizer_config = self.load_optimizer_config()
+
+# Parse command line arguments
+parser = argparse.ArgumentParser(description='Train GPT model with different optimizers and configurations')
+parser.add_argument('--optimizer', type=str, help='Optimizer to use (muon, adam, adamw, sgd)')
+parser.add_argument('--config', type=str, help='JSON string with optimizer configuration overrides')
+parser.add_argument('--config-path', type=str, help='Path to optimizer config YAML file')
+parser.add_argument('--run-name', type=str, help='Name for the Wandb run')
+cmd_args = parser.parse_args()
+
 args = Hyperparameters()
+args.update_from_args(cmd_args)
 
 micro_bs = args.max_device_batch_size
 
@@ -411,6 +458,13 @@ if master_process:
     os.makedirs('logs', exist_ok=True)
     logfile = f'logs/{run_id}.txt'
     print(logfile)
+    # Initialize wandb
+    wandb.init(
+        project=args.wandb_project,
+        entity=args.wandb_entity,
+        config={**vars(args), 'optimizer': args.optimizer_name},
+        name=cmd_args.run_name if cmd_args.run_name else f"run_{run_id}_{args.optimizer_name}",
+    )
 
 def print0(s, console=False):
     if master_process:
@@ -446,6 +500,21 @@ if args.bf16_embeds:
 model = torch.compile(model)
 ddp_model = DDP(model, device_ids=[local_rank], broadcast_buffers=False, gradient_as_bucket_view=True)
 
+def get_hidden_matrix_optimizer(params, optimizer_name):
+    """Initialize optimizer for hidden matrix parameters based on configuration."""
+    config = args.optimizer_config
+    
+    if optimizer_name.lower() == 'muon':
+        return Muon(params, **config)
+    elif optimizer_name.lower() == 'adam':
+        return torch.optim.Adam(params, **config)
+    elif optimizer_name.lower() == 'adamw':
+        return torch.optim.AdamW(params, **config)
+    elif optimizer_name.lower() == 'sgd':
+        return torch.optim.SGD(params, **config)
+    else:
+        raise ValueError(f"Unsupported optimizer: {optimizer_name}")
+
 # collect the parameters to optimize
 hidden_matrix_params = [p for p in model.blocks.parameters() if p.ndim == 2]
 embed_params = [model.embed.weight, *model.value_embeds.parameters()]
@@ -457,7 +526,7 @@ optimizer1 = torch.optim.Adam([dict(params=embed_params, lr=0.6),
                                dict(params=head_params, lr=0.008),
                                dict(params=scalar_params, lr=0.04)],
                               betas=(0.8, 0.95), fused=True)
-optimizer2 = Muon(hidden_matrix_params, lr=0.05, momentum=0.95)
+optimizer2 = get_hidden_matrix_optimizer(hidden_matrix_params, args.optimizer_name)
 optimizers = [optimizer1, optimizer2]
 
 # learning rate schedule: stable then decay
@@ -519,6 +588,14 @@ for step in range(train_steps + 1):
         val_loss /= val_steps
         # logging
         print0(f'step:{step}/{train_steps} val_loss:{val_loss:.4f} train_time:{training_time_ms:.0f}ms step_avg:{training_time_ms/(timed_steps-1):.2f}ms', console=True)
+        # Log to wandb
+        if master_process:
+            wandb.log({
+                "val_loss": val_loss,
+                "step": step,
+                "train_time_ms": training_time_ms,
+                "step_avg_ms": training_time_ms/(timed_steps-1)
+            })
         # start the clock again
         torch.cuda.synchronize()
         t0 = time.perf_counter()
@@ -540,9 +617,10 @@ for step in range(train_steps + 1):
     for micro_inputs_train, micro_targets_train in zip(inputs_train.split(micro_bs), targets_train.split(micro_bs)):
         ddp_model(micro_inputs_train, micro_targets_train, sliding_window_num_blocks).backward()
     # momentum warmup for Muon
-    frac = min(step/300, 1)
-    for group in optimizer2.param_groups:
-        group['momentum'] = (1 - frac) * 0.85 + frac * 0.95
+    if args.optimizer_name.lower() == 'muon':
+        frac = min(step/300, 1)
+        for group in optimizer2.param_groups:
+            group['momentum'] = (1 - frac) * 0.85 + frac * 0.95
     # step the optimizers and schedulers
     for opt, sched in zip(optimizers, schedulers):
         opt.step()
@@ -555,4 +633,6 @@ for step in range(train_steps + 1):
     print0(f'step:{step+1}/{train_steps} train_time:{approx_time:.0f}ms step_avg:{approx_time/timed_steps:.2f}ms', console=True)
 
 print0(f'peak memory consumption: {torch.cuda.max_memory_allocated() // 1024 // 1024} MiB')
+if master_process:
+    wandb.finish()
 dist.destroy_process_group()

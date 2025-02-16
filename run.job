@@ -1,0 +1,26 @@
+#!/bin/tcsh
+#PBS -l ngpus=2
+#PBS -l ncpus=32
+#PBS -l walltime=12:00:00
+#PBS -q workq@e5-cse-cbgpu01.eecscl.psu.edu
+#PBS -N modded-nanogpt-adamw-m
+#PBS -M pxm5426@psu.edu 
+#PBS -m bea
+#PBS -l mem=60g
+#PBS -o pbs_results/
+#PBS -e pbs_results/
+cd $PBS_O_WORKDIR
+
+###
+##  You may have set your $PATH variable depending on your situation -- if your error output can't find commands, you probably need to set your $PATH
+#
+##  If you have your working environment/shell set up to support running your code, you can try using "qsub -V job-name" to submit your job using all of your current environmental variables.
+###
+setenv PATH /scratch/pxm5426/work/apps/conda/bin:/usr/local/sbin:/usr/local/bin:/opt/SUNWspro/bin:/usr/ccs/bin:/usr/bin:/usr/sfw/bin:/usr/ucb:/usr/sbin:/usr/lib:/sbin:/usr/dt/bin:/usr/java/bin:/bin:/usr/X11RC/bin:/usr/X11/bin:/opt/pbs/bin
+setenv HF_HOME  /scratch/pxm5426/work/hf_cache
+
+# Initialize conda for tcsh
+source /scratch/pxm5426/work/apps/conda/etc/profile.d/conda.csh
+conda init tcsh
+conda activate n-gpt2
+python run.py --optimizer adamw --config '{"lr": 0.002, "betas": [0.8, 0.95]}' --num-gpus 2
