@@ -21,6 +21,8 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 # use of FlexAttention contributed by @KoszarskyB
 from torch.nn.attention.flex_attention import BlockMask, flex_attention
+from galore_torch import GaLoreAdamW
+from momentum_factorized_sgd import MomentumFactorizedSGD
 
 # -----------------------------------------------------------------------------
 # Muon optimizer
@@ -512,6 +514,33 @@ def get_hidden_matrix_optimizer(params, optimizer_name):
         return torch.optim.AdamW(params, **config)
     elif optimizer_name.lower() == 'sgd':
         return torch.optim.SGD(params, **config)
+    elif optimizer_name.lower() == 'galore':
+        # Extract GaLore-specific parameters for param groups
+        group_params = config.get('group_params', {})
+        galore_group = {
+            'params': params,
+            'rank': group_params.get('rank', 128),
+            'update_proj_gap': group_params.get('update_proj_gap', 200),
+            'scale': group_params.get('scale', 0.25),
+            'proj_type': group_params.get('proj_type', 'std'),
+        }
+        
+        # Standard optimizer parameters
+        optimizer_params = {
+            'lr': config.get('lr', 0.02),
+            'betas': config.get('betas', (0.8, 0.95)),
+            'weight_decay': config.get('weight_decay', 0.0),
+            'eps': config.get('eps', 1e-8)
+        }
+        
+        return GaLoreAdamW([galore_group], **optimizer_params)
+    elif optimizer_name.lower() == 'lomuon':
+        return MomentumFactorizedSGD(params, 
+                                   lr=config.get('lr', 0.01),
+                                   rank=config.get('rank', 2),
+                                   beta=config.get('beta', 0.9),
+                                   eta1=config.get('eta1', 1.0),
+                                   eta2=config.get('eta2', 1.0))
     else:
         raise ValueError(f"Unsupported optimizer: {optimizer_name}")
 

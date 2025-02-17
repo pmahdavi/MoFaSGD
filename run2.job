@@ -1,0 +1,29 @@
+#!/bin/tcsh
+#PBS -l ngpus=4
+#PBS -l ncpus=32
+#PBS -l walltime=12:00:00
+#PBS -q workq@e5-cse-cbgpu02.eecscl.psu.edu
+#PBS -N modded-nanogpt-gal
+#PBS -M pxm5426@psu.edu 
+#PBS -m bea
+#PBS -l mem=60g
+#PBS -o pbs_results/
+#PBS -e pbs_results/
+cd $PBS_O_WORKDIR
+
+###
+##  You may have set your $PATH variable depending on your situation -- if your error output can't find commands, you probably need to set your $PATH
+#
+##  If you have your working environment/shell set up to support running your code, you can try using "qsub -V job-name" to submit your job using all of your current environmental variables.
+# Configuration for cbgpu02
+setenv PATH /scratch/pxm5426/apps/anaconda/bin:/usr/local/sbin:/usr/local/bin:/usr/bin
+setenv HF_HOME /scratch/pxm5426/apps/hf_cache
+setenv HF_DATASETS_CACHE /scratch/pxm5426/apps/hf_cache/datasets
+
+# Initialize conda for tcsh
+source /scratch/pxm5426/apps/anaconda/etc/profile.d/conda.csh
+conda init tcsh
+conda activate n-gpt2
+## python run.py --optimizer galore --config '{"lr": 0.01}' --num-gpus 2
+python run.py --optimizer lomuon  --num-gpus 4 --config '{"lr": 0.004, "eta1": 0.25, "eta2": 0.0, "rank": 128}'
+## python -m unittest test_momentum_factorized_sgd_advanced.py

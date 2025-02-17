@@ -47,6 +47,12 @@ def generate_run_name(optimizer: str, config: Dict[Any, Any]) -> str:
     if optimizer in ['sgd', 'muon']:
         momentum = config.get('momentum', 'unknown_mom')
         extra_params.append(f"mom{momentum}")
+    elif optimizer == 'lomuon':
+        rank = config.get('rank', 'unknown_rank')
+        beta = config.get('beta', 'unknown_beta')
+        eta1 = config.get('eta1', 'unknown_eta1')
+        eta2 = config.get('eta2', 'unknown_eta2')
+        extra_params.extend([f"rank{rank}", f"beta{beta}", f"eta1_{eta1}", f"eta2_{eta2}"])
     elif optimizer in ['adam', 'adamw']:
         betas = config.get('betas', [0, 0])
         beta1, beta2 = betas if isinstance(betas, (list, tuple)) else (0, 0)
@@ -54,6 +60,15 @@ def generate_run_name(optimizer: str, config: Dict[Any, Any]) -> str:
             wd = config.get('weight_decay', 0)
             extra_params.append(f"wd{wd}")
         extra_params.extend([f"b1_{beta1}", f"b2_{beta2}"])
+    elif optimizer == 'galore':
+        betas = config.get('betas', [0, 0])
+        beta1, beta2 = betas if isinstance(betas, (list, tuple)) else (0, 0)
+        wd = config.get('weight_decay', 0)
+        group_params = config.get('group_params', {})
+        rank = group_params.get('rank', 'unknown_rank')
+        update_proj_gap = group_params.get('update_proj_gap', 'unknown_gap')
+        scale = group_params.get('scale', 'unknown_scale')
+        extra_params.extend([f"b1_{beta1}", f"b2_{beta2}", f"wd{wd}", f"rank_{rank}", f"update_proj_gap{update_proj_gap}", f"scale{scale}"])
     
     params_str = '_'.join(extra_params)
     return f"{optimizer}_lr{lr}_{params_str}"
@@ -67,7 +82,7 @@ def run_training(
     """Run the training script with the specified configuration."""
     
     # Validate optimizer choice
-    valid_optimizers = ['muon', 'adam', 'adamw', 'sgd']
+    valid_optimizers = ['muon', 'adam', 'adamw', 'sgd', 'galore', 'lomuon']
     if optimizer.lower() not in valid_optimizers:
         raise ValueError(f"Invalid optimizer. Must be one of: {', '.join(valid_optimizers)}")
     
@@ -112,7 +127,7 @@ def run_training(
 def main():
     parser = argparse.ArgumentParser(description='Run GPT training with different optimizers and configurations')
     parser.add_argument('--optimizer', type=str, default='muon',
-                      choices=['muon', 'adam', 'adamw', 'sgd'],
+                      choices=['muon', 'adam', 'adamw', 'sgd', 'galore', 'lomuon'],
                       help='Optimizer to use')
     parser.add_argument('--config-path', type=str,
                       help='Path to YAML config file')

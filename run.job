@@ -1,9 +1,9 @@
 #!/bin/tcsh
-#PBS -l ngpus=2
+#PBS -l ngpus=4
 #PBS -l ncpus=32
 #PBS -l walltime=12:00:00
 #PBS -q workq@e5-cse-cbgpu01.eecscl.psu.edu
-#PBS -N modded-nanogpt-adamw-m
+#PBS -N modded-nanogpt-lomuon
 #PBS -M pxm5426@psu.edu 
 #PBS -m bea
 #PBS -l mem=60g
@@ -23,4 +23,5 @@ setenv HF_HOME  /scratch/pxm5426/work/hf_cache
 source /scratch/pxm5426/work/apps/conda/etc/profile.d/conda.csh
 conda init tcsh
 conda activate n-gpt2
-python run.py --optimizer adamw --config '{"lr": 0.002, "betas": [0.8, 0.95]}' --num-gpus 2
+python run.py --optimizer lomuon  --num-gpus 4 --config '{"lr": 0.0035, "eta1": 0.25, "eta2": 0.0, "rank": 64}'
+#python -m unittest test_momentum_factorized_sgd.py
