@@ -393,6 +393,7 @@ class Hyperparameters:
     bf16_embeds = True
     optimizer_name = 'muon'  # Options: 'muon', 'adam', 'adamw', 'sgd'
     optimizer_config_path = None  # Path to optimizer config YAML file
+    use_momentum_warmup = True  # Whether to use momentum warmup for Muon/LoMuon
     # evaluation and logging
     val_loss_every = 20 # every how many steps to evaluate val loss? 0 for only at the end
     val_tokens = 10485760 # how many tokens of validation data? it's important to keep this fixed for consistent comparisons
@@ -429,6 +430,8 @@ class Hyperparameters:
             self.optimizer_config = base_config
         else:
             self.optimizer_config = self.load_optimizer_config()
+        if args.no_momentum_warmup:
+            self.use_momentum_warmup = False
 
 # Parse command line arguments
 parser = argparse.ArgumentParser(description='Train GPT model with different optimizers and configurations')
@@ -436,6 +439,7 @@ parser.add_argument('--optimizer', type=str, help='Optimizer to use (muon, adam,
 parser.add_argument('--config', type=str, help='JSON string with optimizer configuration overrides')
 parser.add_argument('--config-path', type=str, help='Path to optimizer config YAML file')
 parser.add_argument('--run-name', type=str, help='Name for the Wandb run')
+parser.add_argument('--no-momentum-warmup', action='store_true', help='Disable momentum warmup for Muon/LoMuon')
 cmd_args = parser.parse_args()
 
 args = Hyperparameters()
@@ -540,7 +544,9 @@ def get_hidden_matrix_optimizer(params, optimizer_name):
                                    rank=config.get('rank', 2),
                                    beta=config.get('beta', 0.9),
                                    eta1=config.get('eta1', 1.0),
-                                   eta2=config.get('eta2', 1.0))
+                                   eta2=config.get('eta2', 1.0),
+                                   use_current_projection=config.get('use_current_projection', False),
+                                   use_ones_for_nonzero_s=config.get('use_ones_for_nonzero_s', False))
     else:
         raise ValueError(f"Unsupported optimizer: {optimizer_name}")
 
@@ -645,11 +651,16 @@ for step in range(train_steps + 1):
     assert len(inputs_train) <= micro_bs or len(inputs_train) % micro_bs == 0
     for micro_inputs_train, micro_targets_train in zip(inputs_train.split(micro_bs), targets_train.split(micro_bs)):
         ddp_model(micro_inputs_train, micro_targets_train, sliding_window_num_blocks).backward()
-    # momentum warmup for Muon
-    if args.optimizer_name.lower() == 'muon':
-        frac = min(step/300, 1)
-        for group in optimizer2.param_groups:
-            group['momentum'] = (1 - frac) * 0.85 + frac * 0.95
+    # momentum warmup for Muon/LoMuon
+    if args.use_momentum_warmup:
+        if args.optimizer_name.lower() == 'muon':
+            frac = min(step/300, 1)
+            for group in optimizer2.param_groups:
+                group['momentum'] = (1 - frac) * 0.85 + frac * 0.95
+        elif args.optimizer_name.lower() == 'lomuon':
+            frac = min(step/600, 1)
+            for group in optimizer2.param_groups:
+                group['beta'] = (1 - frac) * 0.15 + frac * 0.95
     # step the optimizers and schedulers
     for opt, sched in zip(optimizers, schedulers):
         opt.step()

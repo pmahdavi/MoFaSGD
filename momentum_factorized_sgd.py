@@ -61,7 +61,7 @@ class MomentumFactorizedSGD(Optimizer):
          (c) Finally, update p:
              p <- p - lr * [
                   eta1 * (U_{t+1} diag(1/S_{t+1}) V_{t+1}^T)
-                  + eta2 * (I - U_{t+1}U_{t+1}^T) G_t (I - V_{t+1}V_{t+1}^T)
+                  + eta2 * (I - P_U) G_t (I - P_V)
              ].
 
     Args:
@@ -71,6 +71,8 @@ class MomentumFactorizedSGD(Optimizer):
       beta:   momentum decay factor
       eta1:   scale factor for the low-rank momentum term
       eta2:   scale factor for the orthogonal complement gradient
+      use_current_projection: flag to use current or previous projections
+      use_ones_for_nonzero_s: flag to handle singular values
     """
 
     def __init__(self, params,
@@ -78,8 +80,12 @@ class MomentumFactorizedSGD(Optimizer):
                  rank=2,
                  beta=0.9,
                  eta1=1.0,
-                 eta2=1.0):
-        defaults = dict(lr=lr, rank=rank, beta=beta, eta1=eta1, eta2=eta2)
+                 eta2=1.0,
+                 use_current_projection=False,
+                 use_ones_for_nonzero_s=False):
+        defaults = dict(lr=lr, rank=rank, beta=beta, eta1=eta1, eta2=eta2,
+                       use_current_projection=use_current_projection,
+                       use_ones_for_nonzero_s=use_ones_for_nonzero_s)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -94,6 +100,8 @@ class MomentumFactorizedSGD(Optimizer):
             beta = group['beta']
             eta1 = group['eta1']
             eta2 = group['eta2']
+            use_current_projection = group['use_current_projection']
+            use_ones_for_nonzero_s = group['use_ones_for_nonzero_s']
 
             for p in group['params']:
                 if p.grad is None:
@@ -135,24 +143,44 @@ class MomentumFactorizedSGD(Optimizer):
                 # == (c) Parameter update ==
                 #    p <- p - lr * [
                 #        eta1 * (U_{t+1} diag(1/S_{t+1}) V_{t+1}^T)
-                #        + eta2 * (I - U_{t+1}U_{t+1}^T) G_t (I - V_{t+1}V_{t+1}^T)
+                #        + eta2 * (I - P_U) G_t (I - P_V)
                 #    ]
+                #    where P_U, P_V are either current or previous projections
+                #    based on use_current_projection flag
                 U_nextU_nextT = U_next @ U_next.T  # (m x m)
                 V_nextV_nextT = V_next @ V_next.T  # (n x n)
 
                 # Add numerical stability for division
-                eps = 1e-8
-                safe_reciprocal_S = 1.0 / (S_next + eps)
-                # Optionally clip extremely large values
-                max_value = 1e6
-                safe_reciprocal_S = torch.clamp(safe_reciprocal_S, max=max_value)
+                eps = 1e-3
+                # Create mask for non-zero singular values
+                non_zero_mask = S_next.abs() > eps
+                safe_reciprocal_S = torch.zeros_like(S_next)
+                
+                # Handle singular values based on use_ones_for_nonzero_s flag
+                if group['use_ones_for_nonzero_s']:
+                    # Set all non-zero singular values to 1.0 (equivalent to setting their reciprocal to 1.0)
+                    safe_reciprocal_S[non_zero_mask] = 1.0
+                else:
+                    # Original behavior: compute reciprocal for non-zero values
+                    safe_reciprocal_S[non_zero_mask] = 1.0 / (S_next[non_zero_mask])
+                    # Optionally clip extremely large values
+                    max_value = 10000
+                    safe_reciprocal_S = torch.clamp(safe_reciprocal_S, max=max_value)
 
                 # Low-rank momentum part with reciprocal S
                 USVt_next = (U_next * safe_reciprocal_S.unsqueeze(0)) @ V_next.T  # shape (m x n)
 
+                # Choose projection matrices based on flag
+                if use_current_projection:
+                    proj_U = U_nextU_nextT
+                    proj_V = V_nextV_nextT
+                else:
+                    proj_U = U @ U.T
+                    proj_V = V @ V.T
+
                 # Orthogonal complement of G_t
-                left_ortho = G_t - U_nextU_nextT @ G_t
-                right_ortho = left_ortho - left_ortho @ V_nextV_nextT
+                left_ortho = G_t - proj_U @ G_t
+                right_ortho = left_ortho - left_ortho @ proj_V
 
                 # Final update
                 p.data = p.data - lr * (
@@ -218,6 +246,39 @@ class MomentumFactorizedSGD(Optimizer):
         S_dblprime_r = S_dblprime[:r]     # (r,)
         V_dblprime_r = V_dblprime[:, :r]  # (2r, r)
 
+        # print("\n=== SVD Debug Info ===")
+        # print(f"Shape of Mid matrix: {Mid.shape}")
+        # print(f"Rank parameter r: {r}")
+        # print("Singular values summary:")
+        
+        # # Get total number of singular values
+        # n_vals = len(S_dblprime_r)
+        # # Show at most 3 values from start and end
+        # n_show = min(3, n_vals // 2)
+        
+        # # Print first few values
+        # print("First singular values:")
+        # for i in range(min(n_show, n_vals)):
+        #     print(f"  σ_{i+1}: {S_dblprime_r[i]:.6f}")
+            
+        # # If there are more values in the middle, show ellipsis
+        # if n_vals > 2 * n_show:
+        #     print("  ...")
+            
+        # # Print last few values if we have more
+        # if n_vals > n_show:
+        #     print("Last singular values:")
+        #     for i in range(max(n_show, n_vals - n_show), n_vals):
+        #         print(f"  σ_{i+1}: {S_dblprime_r[i]:.6f}")
+                
+        # # Print some statistics
+        # print(f"Statistics:")
+        # print(f"  Max σ: {torch.max(S_dblprime_r):.6f}")
+        # print(f"  Min σ: {torch.min(S_dblprime_r):.6f}")
+        # print(f"  Mean σ: {torch.mean(S_dblprime_r):.6f}")
+        # print(f"  Median σ: {torch.median(S_dblprime_r):.6f}")
+        # print("=====================\n")
+        
         # 6) Pull back => U_next, S_next, V_next
         U_next = U_prime.mm(U_dblprime_r)  # (m, r)
         S_next = S_dblprime_r.clone()      # (r,)

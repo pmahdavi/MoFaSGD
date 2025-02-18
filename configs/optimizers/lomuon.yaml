@@ -2,4 +2,6 @@ lr: 0.005
 rank: 32
 beta: 0.85
 eta1: 0.25
-eta2: 0.05 
+eta2: 0.05
+use_current_projection: false
+use_ones_for_nonzero_s: false  # Set to true to use U V^T update instead of U diag(1/S) V^T 

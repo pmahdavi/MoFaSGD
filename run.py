@@ -52,7 +52,10 @@ def generate_run_name(optimizer: str, config: Dict[Any, Any]) -> str:
         beta = config.get('beta', 'unknown_beta')
         eta1 = config.get('eta1', 'unknown_eta1')
         eta2 = config.get('eta2', 'unknown_eta2')
-        extra_params.extend([f"rank{rank}", f"beta{beta}", f"eta1_{eta1}", f"eta2_{eta2}"])
+        use_current = config.get('use_current_projection', False)
+        use_ones = config.get('use_ones_for_nonzero_s', False)
+        extra_params.extend([f"rank{rank}", f"beta{beta}", f"eta1_{eta1}", f"eta2_{eta2}", 
+                           f"curr_proj_{use_current}", f"use_ones_{use_ones}"])
     elif optimizer in ['adam', 'adamw']:
         betas = config.get('betas', [0, 0])
         beta1, beta2 = betas if isinstance(betas, (list, tuple)) else (0, 0)

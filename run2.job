@@ -25,5 +25,5 @@ source /scratch/pxm5426/apps/anaconda/etc/profile.d/conda.csh
 conda init tcsh
 conda activate n-gpt2
 ## python run.py --optimizer galore --config '{"lr": 0.01}' --num-gpus 2
-python run.py --optimizer lomuon  --num-gpus 4 --config '{"lr": 0.004, "eta1": 0.25, "eta2": 0.0, "rank": 128}'
+python run.py --optimizer lomuon  --num-gpus 4 --config '{"lr": 0.000075, "eta1": 0.25, "eta2": 0.0, "rank": 128, "beta": 0.95, "use_current_projection": true, "use_ones_for_nonzero_s": false}'
 ## python -m unittest test_momentum_factorized_sgd_advanced.py
