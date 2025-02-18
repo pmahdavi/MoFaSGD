@@ -658,9 +658,13 @@ for step in range(train_steps + 1):
             for group in optimizer2.param_groups:
                 group['momentum'] = (1 - frac) * 0.85 + frac * 0.95
         elif args.optimizer_name.lower() == 'lomuon':
-            frac = min(step/600, 1)
+            # Get warmup parameters from config
+            warmup_steps = args.optimizer_config.get('warmup_steps', 600)  # default to original value
+            beta_start = args.optimizer_config.get('beta_start', 0.15)    # default to original value
+            beta_end = args.optimizer_config.get('beta_end', 0.95)        # default to original value
+            frac = min(step/warmup_steps, 1)
             for group in optimizer2.param_groups:
-                group['beta'] = (1 - frac) * 0.15 + frac * 0.95
+                group['beta'] = (1 - frac) * beta_start + frac * beta_end
     # step the optimizers and schedulers
     for opt, sched in zip(optimizers, schedulers):
         opt.step()

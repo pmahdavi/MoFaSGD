@@ -5,3 +5,9 @@ eta1: 0.25
 eta2: 0.05
 use_current_projection: false
 use_ones_for_nonzero_s: false  # Set to true to use U V^T update instead of U diag(1/S) V^T 
+eps: 1e-4  # Epsilon value for numerical stability in singular value handling
+max_value: 10000  # Maximum value for clipping reciprocal singular values
+# Beta warmup parameters
+warmup_steps: 600  # Number of steps for beta warmup
+beta_start: 0.15   # Initial beta value at start of warmup
+beta_end: 0.95     # Final beta value after warmup 

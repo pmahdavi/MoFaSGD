@@ -1,7 +1,7 @@
 #!/bin/tcsh
 #PBS -l ngpus=4
 #PBS -l ncpus=32
-#PBS -l walltime=12:00:00
+#PBS -l walltime=15:00:00
 #PBS -q workq@e5-cse-cbgpu02.eecscl.psu.edu
 #PBS -N modded-nanogpt-gal
 #PBS -M pxm5426@psu.edu 
@@ -25,5 +25,5 @@ source /scratch/pxm5426/apps/anaconda/etc/profile.d/conda.csh
 conda init tcsh
 conda activate n-gpt2
 ## python run.py --optimizer galore --config '{"lr": 0.01}' --num-gpus 2
-python run.py --optimizer lomuon  --num-gpus 4 --config '{"lr": 0.000075, "eta1": 0.25, "eta2": 0.0, "rank": 128, "beta": 0.95, "use_current_projection": true, "use_ones_for_nonzero_s": false}'
+python run.py --optimizer lomuon  --num-gpus 4 --config '{"lr": 0.0004, "eta1": 0.25, "eta2": 0.0, "rank": 128, "beta": 0.95, "use_current_projection": true, "use_ones_for_nonzero_s": false, "warmup_steps": 300, "beta_start": 0.5, "beta_end": 0.8, "eps": 1e-5, "max_value": 1500}'
 ## python -m unittest test_momentum_factorized_sgd_advanced.py

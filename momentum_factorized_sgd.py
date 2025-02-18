@@ -73,6 +73,8 @@ class MomentumFactorizedSGD(Optimizer):
       eta2:   scale factor for the orthogonal complement gradient
       use_current_projection: flag to use current or previous projections
       use_ones_for_nonzero_s: flag to handle singular values
+      eps:    epsilon value for numerical stability
+      max_value: maximum value for clipping reciprocal singular values
     """
 
     def __init__(self, params,
@@ -82,10 +84,14 @@ class MomentumFactorizedSGD(Optimizer):
                  eta1=1.0,
                  eta2=1.0,
                  use_current_projection=False,
-                 use_ones_for_nonzero_s=False):
+                 use_ones_for_nonzero_s=False,
+                 eps=1e-4,
+                 max_value=10000):
         defaults = dict(lr=lr, rank=rank, beta=beta, eta1=eta1, eta2=eta2,
                        use_current_projection=use_current_projection,
-                       use_ones_for_nonzero_s=use_ones_for_nonzero_s)
+                       use_ones_for_nonzero_s=use_ones_for_nonzero_s,
+                       eps=eps,
+                       max_value=max_value)
         super().__init__(params, defaults)
 
     @torch.no_grad()
@@ -102,6 +108,8 @@ class MomentumFactorizedSGD(Optimizer):
             eta2 = group['eta2']
             use_current_projection = group['use_current_projection']
             use_ones_for_nonzero_s = group['use_ones_for_nonzero_s']
+            eps = group['eps']
+            max_value = group['max_value']
 
             for p in group['params']:
                 if p.grad is None:
@@ -151,7 +159,7 @@ class MomentumFactorizedSGD(Optimizer):
                 V_nextV_nextT = V_next @ V_next.T  # (n x n)
 
                 # Add numerical stability for division
-                eps = 1e-3
+                eps = group['eps']
                 # Create mask for non-zero singular values
                 non_zero_mask = S_next.abs() > eps
                 safe_reciprocal_S = torch.zeros_like(S_next)
@@ -164,7 +172,7 @@ class MomentumFactorizedSGD(Optimizer):
                     # Original behavior: compute reciprocal for non-zero values
                     safe_reciprocal_S[non_zero_mask] = 1.0 / (S_next[non_zero_mask])
                     # Optionally clip extremely large values
-                    max_value = 10000
+                    max_value = group['max_value']
                     safe_reciprocal_S = torch.clamp(safe_reciprocal_S, max=max_value)
 
                 # Low-rank momentum part with reciprocal S

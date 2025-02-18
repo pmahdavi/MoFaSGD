@@ -56,6 +56,15 @@ def generate_run_name(optimizer: str, config: Dict[Any, Any]) -> str:
         use_ones = config.get('use_ones_for_nonzero_s', False)
         extra_params.extend([f"rank{rank}", f"beta{beta}", f"eta1_{eta1}", f"eta2_{eta2}", 
                            f"curr_proj_{use_current}", f"use_ones_{use_ones}"])
+        # Add eps and max_value for LoMuon
+        eps = config.get('eps', 'unknown_eps')
+        max_value = config.get('max_value', 'unknown_max')
+        extra_params.extend([f"eps{eps}", f"max{max_value}"])
+        # Add warmup parameters
+        warmup_steps = config.get('warmup_steps', 'unknown_warmup')
+        beta_start = config.get('beta_start', 'unknown_beta_start')
+        beta_end = config.get('beta_end', 'unknown_beta_end')
+        extra_params.extend([f"warmup{warmup_steps}", f"beta_start{beta_start}", f"beta_end{beta_end}"])
     elif optimizer in ['adam', 'adamw']:
         betas = config.get('betas', [0, 0])
         beta1, beta2 = betas if isinstance(betas, (list, tuple)) else (0, 0)
