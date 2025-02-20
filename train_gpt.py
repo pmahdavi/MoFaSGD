@@ -389,7 +389,6 @@ class Hyperparameters:
     batch_size = 8*64*1024 # batch size in tokens
     max_device_batch_size = 64*1024 # batch size per device in tokens
     num_iterations = 1390 # number of iterations to run
-    cooldown_frac = 0.4 # fraction of training spent cooling down the learning rate
     bf16_embeds = True
     optimizer_name = 'muon'  # Options: 'muon', 'adam', 'adamw', 'sgd'
     optimizer_config_path = None  # Path to optimizer config YAML file
@@ -546,7 +545,10 @@ def get_hidden_matrix_optimizer(params, optimizer_name):
                                    eta1=config.get('eta1', 1.0),
                                    eta2=config.get('eta2', 1.0),
                                    use_current_projection=config.get('use_current_projection', False),
-                                   use_ones_for_nonzero_s=config.get('use_ones_for_nonzero_s', False))
+                                   use_ones_for_nonzero_s=config.get('use_ones_for_nonzero_s', False),
+                                   eps=config.get('eps', 1e-4),
+                                   nesterov=config.get('nesterov', False),
+                                   max_value=config.get('max_value', 10000))
     else:
         raise ValueError(f"Unsupported optimizer: {optimizer_name}")
 
@@ -568,12 +570,14 @@ optimizers = [optimizer1, optimizer2]
 def get_lr(it):
     t = 1 - it / args.num_iterations # time remaining in training
     assert 1 >= t > 0
+    # Get cooldown_frac from optimizer config
+    cooldown_frac = args.optimizer_config.get('cooldown_frac', 0.4)  # default to 0.4 if not specified
     # 1) constant lr for first part of training
-    if t >= args.cooldown_frac:
+    if t >= cooldown_frac:
         return 1.0
     # 2) then linear cooldown
     else:
-        return t / args.cooldown_frac
+        return t / cooldown_frac
 schedulers = [torch.optim.lr_scheduler.LambdaLR(opt, get_lr) for opt in optimizers]
 
 # sliding window size schedule: linear increase over training in chunks of 128 from 128 -> 1792. By @fernbear.bsky.social

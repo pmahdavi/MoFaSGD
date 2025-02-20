@@ -74,6 +74,7 @@ class MomentumFactorizedSGD(Optimizer):
       use_current_projection: flag to use current or previous projections
       use_ones_for_nonzero_s: flag to handle singular values
       eps:    epsilon value for numerical stability
+      nesterov: flag to use Nesterov momentum
       max_value: maximum value for clipping reciprocal singular values
     """
 
@@ -86,11 +87,13 @@ class MomentumFactorizedSGD(Optimizer):
                  use_current_projection=False,
                  use_ones_for_nonzero_s=False,
                  eps=1e-4,
+                 nesterov=False,
                  max_value=10000):
         defaults = dict(lr=lr, rank=rank, beta=beta, eta1=eta1, eta2=eta2,
                        use_current_projection=use_current_projection,
                        use_ones_for_nonzero_s=use_ones_for_nonzero_s,
                        eps=eps,
+                       nesterov=nesterov,
                        max_value=max_value)
         super().__init__(params, defaults)
 
@@ -109,6 +112,7 @@ class MomentumFactorizedSGD(Optimizer):
             use_current_projection = group['use_current_projection']
             use_ones_for_nonzero_s = group['use_ones_for_nonzero_s']
             eps = group['eps']
+            nesterov = group['nesterov']
             max_value = group['max_value']
 
             for p in group['params']:
@@ -133,20 +137,30 @@ class MomentumFactorizedSGD(Optimizer):
                 G_t = p.grad
 
                 # == (a) Tangent Projection ==
-                UUTG = U @ (U.T @ G_t)            # (m x n)
-                GVVT = (G_t @ V) @ V.T            # (m x n)
-                G_hat = UUTG + GVVT - (UUTG @ V) @ V.T  # shape (m x n)
+                # UUTG = U @ (U.T @ G_t)            # (m x n)
+                # GVVT = (G_t @ V) @ V.T            # (m x n)
+                # G_hat = UUTG + GVVT - (UUTG @ V) @ V.T  # shape (m x n)
 
                 # == (b) Update the momentum factor ==
                 # We want M_new = G_hat + beta * (U diag(S) V^T),
                 # and store it as U_{t+1} diag(S_{t+1}) V_{t+1}^T
 
-                U_next, S_next, V_next = self._update_momentum_factor(U, S, V, G_hat, beta)
+                U_next, S_next, V_next = self._update_momentum_factor(U, S, V, G_t, beta)
 
                 # Store the new factors
                 mf.U = U_next
                 mf.S = S_next
                 mf.V = V_next
+
+                # If using Nesterov momentum, apply the update again
+                if group['nesterov']:
+                    # # Compute the Nesterov momentum by applying the update twice
+                    # UUTG_nesterov = U_next @ (U_next.T @ G_t)
+                    # GVVT_nesterov = (G_t @ V_next) @ V_next.T
+                    # G_hat_nesterov = UUTG_nesterov + GVVT_nesterov - (UUTG_nesterov @ V_next) @ V_next.T
+                    U_next, S_next, V_next = self._update_momentum_factor(U_next, S_next, V_next, G_t, beta)
+
+
 
                 # == (c) Parameter update ==
                 #    p <- p - lr * [

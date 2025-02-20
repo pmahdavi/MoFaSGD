@@ -10,4 +10,6 @@ max_value: 10000  # Maximum value for clipping reciprocal singular values
 # Beta warmup parameters
 warmup_steps: 600  # Number of steps for beta warmup
 beta_start: 0.15   # Initial beta value at start of warmup
-beta_end: 0.95     # Final beta value after warmup 
+beta_end: 0.95     # Final beta value after warmup
+cooldown_frac: 0.4  # Fraction of training spent cooling down the learning rate
+nesterov: false    # Whether to use Nesterov momentum 

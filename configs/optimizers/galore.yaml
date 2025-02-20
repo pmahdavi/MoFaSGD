@@ -7,6 +7,8 @@ eps: 1.0e-8
 # GaLore group parameters
 group_params:
   rank: 128
-  update_proj_gap: 150
+  update_proj_gap: 200
   scale: 0.25
-  proj_type: 'std' 
+  proj_type: 'std'
+cooldown_frac: 0.4
+ 

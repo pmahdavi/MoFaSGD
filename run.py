@@ -41,9 +41,11 @@ def get_final_config(optimizer: str, config_path: Optional[str] = None, config_o
 def generate_run_name(optimizer: str, config: Dict[Any, Any]) -> str:
     """Generate a descriptive run name based on optimizer and config."""
     lr = config.get('lr', 'unknown_lr')
+    cooldown_frac = config.get('cooldown_frac', 'unknown_cd')
     
     # Add additional parameters based on optimizer type
-    extra_params = []
+    extra_params = [f"cd{cooldown_frac}"]  # Add cooldown_frac for all optimizers
+    
     if optimizer in ['sgd', 'muon']:
         momentum = config.get('momentum', 'unknown_mom')
         extra_params.append(f"mom{momentum}")
@@ -54,8 +56,9 @@ def generate_run_name(optimizer: str, config: Dict[Any, Any]) -> str:
         eta2 = config.get('eta2', 'unknown_eta2')
         use_current = config.get('use_current_projection', False)
         use_ones = config.get('use_ones_for_nonzero_s', False)
+        nesterov = config.get('nesterov', False)
         extra_params.extend([f"rank{rank}", f"beta{beta}", f"eta1_{eta1}", f"eta2_{eta2}", 
-                           f"curr_proj_{use_current}", f"use_ones_{use_ones}"])
+                           f"curr_proj_{use_current}", f"use_ones_{use_ones}", f"nesterov_{nesterov}"])
         # Add eps and max_value for LoMuon
         eps = config.get('eps', 'unknown_eps')
         max_value = config.get('max_value', 'unknown_max')
