@@ -42,9 +42,10 @@ def generate_run_name(optimizer: str, config: Dict[Any, Any]) -> str:
     """Generate a descriptive run name based on optimizer and config."""
     lr = config.get('lr', 'unknown_lr')
     cooldown_frac = config.get('cooldown_frac', 'unknown_cd')
+    scheduler_name = config.get('scheduler_name', 'original')  # Add scheduler to run name
     
     # Add additional parameters based on optimizer type
-    extra_params = [f"cd{cooldown_frac}"]  # Add cooldown_frac for all optimizers
+    extra_params = [f"cd{cooldown_frac}", f"sched_{scheduler_name}"]  # Add scheduler name
     
     if optimizer in ['sgd', 'muon']:
         momentum = config.get('momentum', 'unknown_mom')
@@ -68,6 +69,9 @@ def generate_run_name(optimizer: str, config: Dict[Any, Any]) -> str:
         beta_start = config.get('beta_start', 'unknown_beta_start')
         beta_end = config.get('beta_end', 'unknown_beta_end')
         extra_params.extend([f"warmup{warmup_steps}", f"beta_start{beta_start}", f"beta_end{beta_end}"])
+        # Add scheduler specific parameters if present
+        if 'lr_warmup_steps' in config:
+            extra_params.append(f"lr_warmup{config['lr_warmup_steps']}")
     elif optimizer in ['adam', 'adamw']:
         betas = config.get('betas', [0, 0])
         beta1, beta2 = betas if isinstance(betas, (list, tuple)) else (0, 0)
@@ -92,7 +96,7 @@ def run_training(
     optimizer: str,
     config_path: Optional[str] = None,
     config_override: Optional[str] = None,
-    num_gpus: int = 1
+    num_gpus: int = 1,
 ) -> None:
     """Run the training script with the specified configuration."""
     
@@ -103,6 +107,7 @@ def run_training(
     
     # Get final config for run name
     final_config = get_final_config(optimizer, config_path, config_override)
+    
     run_name = generate_run_name(optimizer, final_config)
     
     # Build command
@@ -112,7 +117,7 @@ def run_training(
         f"--nproc_per_node={num_gpus}",
         "train_gpt.py",
         "--optimizer", optimizer,
-        "--run-name", run_name,  # Pass run name to train_gpt.py
+        "--run-name", run_name,
     ]
     
     # Add config path if specified
@@ -171,7 +176,7 @@ def main():
             optimizer=args.optimizer,
             config_path=args.config_path,
             config_override=args.config,
-            num_gpus=args.num_gpus
+            num_gpus=args.num_gpus,
         )
     except Exception as e:
         print(f"Error: {str(e)}")

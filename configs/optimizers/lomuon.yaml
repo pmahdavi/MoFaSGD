@@ -1,3 +1,4 @@
+# Base LoMuon parameters
 lr: 0.005
 rank: 32
 beta: 0.85
@@ -7,9 +8,13 @@ use_current_projection: false
 use_ones_for_nonzero_s: false  # Set to true to use U V^T update instead of U diag(1/S) V^T 
 eps: 1e-4  # Epsilon value for numerical stability in singular value handling
 max_value: 10000  # Maximum value for clipping reciprocal singular values
+
 # Beta warmup parameters
 warmup_steps: 600  # Number of steps for beta warmup
 beta_start: 0.15   # Initial beta value at start of warmup
 beta_end: 0.95     # Final beta value after warmup
-cooldown_frac: 0.4  # Fraction of training spent cooling down the learning rate
-nesterov: false    # Whether to use Nesterov momentum 
+nesterov: false    # Whether to use Nesterov momentum
+
+# Learning rate schedule parameters
+scheduler_name: 'original'  # Use original scheduler by default
+cooldown_frac: 0.4  # Fraction of training spent cooling down the learning rate 

@@ -23,6 +23,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.nn.attention.flex_attention import BlockMask, flex_attention
 from galore_torch import GaLoreAdamW
 from momentum_factorized_sgd import MomentumFactorizedSGD
+from lr_schedulers import create_scheduler  # Add this import
 
 # -----------------------------------------------------------------------------
 # Muon optimizer
@@ -411,26 +412,34 @@ class Hyperparameters:
         
         try:
             with open(config_path, 'r') as f:
-                return yaml.safe_load(f)
+                return yaml.safe_load(f) or {}
         except FileNotFoundError:
             print(f"Warning: Config file {config_path} not found. Using default configuration.")
             return {}
 
     def update_from_args(self, args):
         """Update hyperparameters from command line arguments."""
+        # 1. Set basic parameters from command line
         if args.optimizer:
             self.optimizer_name = args.optimizer
         if args.config_path:
             self.optimizer_config_path = args.config_path
-        if args.config:
-            config_override = json.loads(args.config)
-            base_config = self.load_optimizer_config()
-            base_config.update(config_override)
-            self.optimizer_config = base_config
-        else:
-            self.optimizer_config = self.load_optimizer_config()
         if args.no_momentum_warmup:
             self.use_momentum_warmup = False
+        
+        # 2. Load base config from YAML
+        base_config = self.load_optimizer_config()
+        
+        # 3. Apply JSON config overrides if any
+        if args.config:
+            try:
+                config_override = json.loads(args.config)
+                base_config.update(config_override)
+            except json.JSONDecodeError:
+                print(f"Warning: Invalid JSON in config override: {args.config}")
+                
+        # 4. Store the final merged config
+        self.optimizer_config = base_config
 
 # Parse command line arguments
 parser = argparse.ArgumentParser(description='Train GPT model with different optimizers and configurations')
@@ -566,19 +575,14 @@ optimizer1 = torch.optim.Adam([dict(params=embed_params, lr=0.6),
 optimizer2 = get_hidden_matrix_optimizer(hidden_matrix_params, args.optimizer_name)
 optimizers = [optimizer1, optimizer2]
 
-# learning rate schedule: stable then decay
-def get_lr(it):
-    t = 1 - it / args.num_iterations # time remaining in training
-    assert 1 >= t > 0
-    # Get cooldown_frac from optimizer config
-    cooldown_frac = args.optimizer_config.get('cooldown_frac', 0.4)  # default to 0.4 if not specified
-    # 1) constant lr for first part of training
-    if t >= cooldown_frac:
-        return 1.0
-    # 2) then linear cooldown
-    else:
-        return t / cooldown_frac
-schedulers = [torch.optim.lr_scheduler.LambdaLR(opt, get_lr) for opt in optimizers]
+# Create schedulers using the factory
+schedulers = [
+    create_scheduler('original', optimizer1, args.num_iterations, args.optimizer_config),  # Always use original for optimizer1
+    create_scheduler(args.optimizer_config.get('scheduler_name', 'original'), optimizer2, args.num_iterations, args.optimizer_config)  # Use scheduler from config
+]
+
+if master_process:
+    print0(f"Using scheduler '{args.optimizer_config.get('scheduler_name', 'original')}' for optimizer2", console=True)
 
 # sliding window size schedule: linear increase over training in chunks of 128 from 128 -> 1792. By @fernbear.bsky.social
 def get_sliding_window_blocks(it):
@@ -679,6 +683,14 @@ for step in range(train_steps + 1):
     # logging
     approx_time = training_time_ms + 1000 * (time.perf_counter() - t0)
     print0(f'step:{step+1}/{train_steps} train_time:{approx_time:.0f}ms step_avg:{approx_time/timed_steps:.2f}ms', console=True)
+
+    # Add learning rate logging
+    if master_process:
+        wandb.log({
+            "lr_optimizer1": schedulers[0].get_last_lr()[0],
+            "lr_optimizer2": schedulers[1].get_last_lr()[0],
+            # ... existing logging ...
+        })
 
 print0(f'peak memory consumption: {torch.cuda.max_memory_allocated() // 1024 // 1024} MiB')
 if master_process:
