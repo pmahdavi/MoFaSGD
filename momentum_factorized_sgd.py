@@ -145,22 +145,12 @@ class MomentumFactorizedSGD(Optimizer):
                 # We want M_new = G_hat + beta * (U diag(S) V^T),
                 # and store it as U_{t+1} diag(S_{t+1}) V_{t+1}^T
 
-                U_next, S_next, V_next = self._update_momentum_factor(U, S, V, G_t, beta)
+                U_full, S_full, V_full = self._update_momentum_factor(U, S, V, G_t, beta)
 
-                # Store the new factors
-                mf.U = U_next
-                mf.S = S_next
-                mf.V = V_next
-
-                # If using Nesterov momentum, apply the update again
-                if group['nesterov']:
-                    # # Compute the Nesterov momentum by applying the update twice
-                    # UUTG_nesterov = U_next @ (U_next.T @ G_t)
-                    # GVVT_nesterov = (G_t @ V_next) @ V_next.T
-                    # G_hat_nesterov = UUTG_nesterov + GVVT_nesterov - (UUTG_nesterov @ V_next) @ V_next.T
-                    U_next, S_next, V_next = self._update_momentum_factor(U_next, S_next, V_next, G_t, beta)
-
-
+                # Truncate to rank r for the momentum factor
+                mf.U = U_full[:, :rank]
+                mf.S = S_full[:rank]
+                mf.V = V_full[:, :rank]
 
                 # == (c) Parameter update ==
                 #    p <- p - lr * [
@@ -169,14 +159,14 @@ class MomentumFactorizedSGD(Optimizer):
                 #    ]
                 #    where P_U, P_V are either current or previous projections
                 #    based on use_current_projection flag
-                U_nextU_nextT = U_next @ U_next.T  # (m x m)
-                V_nextV_nextT = V_next @ V_next.T  # (n x n)
+                U_nextU_nextT = U_full @ U_full.T  # (m x m)
+                V_nextV_nextT = V_full @ V_full.T  # (n x n)
 
                 # Add numerical stability for division
                 eps = group['eps']
                 # Create mask for non-zero singular values
-                non_zero_mask = S_next.abs() > eps
-                safe_reciprocal_S = torch.zeros_like(S_next)
+                non_zero_mask = S_full.abs() > eps
+                safe_reciprocal_S = torch.zeros_like(S_full)
                 
                 # Handle singular values based on use_ones_for_nonzero_s flag
                 if group['use_ones_for_nonzero_s']:
@@ -184,13 +174,13 @@ class MomentumFactorizedSGD(Optimizer):
                     safe_reciprocal_S[non_zero_mask] = 1.0
                 else:
                     # Original behavior: compute reciprocal for non-zero values
-                    safe_reciprocal_S[non_zero_mask] = 1.0 / (S_next[non_zero_mask])
+                    safe_reciprocal_S[non_zero_mask] = 1.0 / (S_full[non_zero_mask])
                     # Optionally clip extremely large values
                     max_value = group['max_value']
                     safe_reciprocal_S = torch.clamp(safe_reciprocal_S, max=max_value)
 
                 # Low-rank momentum part with reciprocal S
-                USVt_next = (U_next * safe_reciprocal_S.unsqueeze(0)) @ V_next.T  # shape (m x n)
+                USVt_next = (U_full * safe_reciprocal_S.unsqueeze(0)) @ V_full.T  # shape (m x n)
 
                 # Choose projection matrices based on flag
                 if use_current_projection:
@@ -262,51 +252,15 @@ class MomentumFactorizedSGD(Optimizer):
         # 4) Mid = R_U * B * R_V^T
         Mid = R_U.mm(B).mm(R_V.t())  # (2r, 2r)
 
-        # 5) SVD on Mid, truncated to rank r
-        U_dblprime, S_dblprime, V_dblprime = torch.svd(Mid)
-        U_dblprime_r = U_dblprime[:, :r]  # (2r, r)
-        S_dblprime_r = S_dblprime[:r]     # (r,)
-        V_dblprime_r = V_dblprime[:, :r]  # (2r, r)
+        # 5) SVD on Mid
+        U_dblprime, S_dblprime, V_dblprime = torch.svd(Mid)  # Full SVD
 
-        # print("\n=== SVD Debug Info ===")
-        # print(f"Shape of Mid matrix: {Mid.shape}")
-        # print(f"Rank parameter r: {r}")
-        # print("Singular values summary:")
+        # 6) Pull back => U_full, S_full, V_full
+        # Do full matrix multiplications
+        U_full = U_prime.mm(U_dblprime)  # (m, 2r)
+        V_full = V_prime.mm(V_dblprime)  # (n, 2r)
         
-        # # Get total number of singular values
-        # n_vals = len(S_dblprime_r)
-        # # Show at most 3 values from start and end
-        # n_show = min(3, n_vals // 2)
-        
-        # # Print first few values
-        # print("First singular values:")
-        # for i in range(min(n_show, n_vals)):
-        #     print(f"  σ_{i+1}: {S_dblprime_r[i]:.6f}")
-            
-        # # If there are more values in the middle, show ellipsis
-        # if n_vals > 2 * n_show:
-        #     print("  ...")
-            
-        # # Print last few values if we have more
-        # if n_vals > n_show:
-        #     print("Last singular values:")
-        #     for i in range(max(n_show, n_vals - n_show), n_vals):
-        #         print(f"  σ_{i+1}: {S_dblprime_r[i]:.6f}")
-                
-        # # Print some statistics
-        # print(f"Statistics:")
-        # print(f"  Max σ: {torch.max(S_dblprime_r):.6f}")
-        # print(f"  Min σ: {torch.min(S_dblprime_r):.6f}")
-        # print(f"  Mean σ: {torch.mean(S_dblprime_r):.6f}")
-        # print(f"  Median σ: {torch.median(S_dblprime_r):.6f}")
-        # print("=====================\n")
-        
-        # 6) Pull back => U_next, S_next, V_next
-        U_next = U_prime.mm(U_dblprime_r)  # (m, r)
-        S_next = S_dblprime_r.clone()      # (r,)
-        V_next = V_prime.mm(V_dblprime_r)  # (n, r)
-
-        return U_next, S_next, V_next
+        return U_full, S_dblprime, V_full
 
 
 # # ----------------------------------------------------------------------

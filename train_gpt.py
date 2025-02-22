@@ -679,26 +679,93 @@ for step in range(train_steps + 1):
             beta_start = args.optimizer_config.get('beta_start', 0.15)    # default to original value
             beta_end = args.optimizer_config.get('beta_end', 0.95)        # default to original value
             frac = min(step/warmup_steps, 1)
+            
+            # Initialize stats dictionary for this step
+            step_stats = {}
+            
             for group in optimizer2.param_groups:
                 group['beta'] = (1 - frac) * beta_start + frac * beta_end
+                
+            # Log LoMuon state if it's being used
+            if master_process:  # Remove validation step check to log every step
+                # Get all 2D parameters with their names
+                params_2d = [(name, p) for name, p in model.blocks.named_parameters() if p.dim() == 2]
+                
+                # Initialize aggregated statistics
+                all_singular_values = []
+                all_U_norms = []
+                all_V_norms = []
+                param_stats = {}
+                
+                # Collect statistics for each parameter
+                for param_name, param in params_2d:
+                    if 'momentum_factor' in optimizer2.state[param]:
+                        mf = optimizer2.state[param]['momentum_factor']
+                        U, S, V = mf.U, mf.S, mf.V
+                        
+                        # Clean up parameter name for logging
+                        clean_name = param_name.replace('.', '_')
+                        param_prefix = f"lomuon/param/{clean_name}"
+                        
+                        # Store individual parameter statistics
+                        param_stats.update({
+                            f"{param_prefix}/singular_values_mean": S.mean().item(),
+                            f"{param_prefix}/singular_values_std": S.std().item(),
+                            f"{param_prefix}/U_norm": U.norm().item(),
+                            f"{param_prefix}/V_norm": V.norm().item(),
+                            f"{param_prefix}/max_singular_value": S.max().item(),
+                            f"{param_prefix}/min_singular_value": S.min().item(),
+                            # Add shape dimensions as separate scalar values
+                            f"{param_prefix}/shape_dim0": param.shape[0],
+                            f"{param_prefix}/shape_dim1": param.shape[1],
+                        })
+                        
+                        # Collect values for aggregate statistics
+                        all_singular_values.extend(S.tolist())
+                        all_U_norms.append(U.norm().item())
+                        all_V_norms.append(V.norm().item())
+                
+                # Convert to tensor for aggregate statistics
+                if all_singular_values:  # Check if we have any values
+                    all_singular_values = torch.tensor(all_singular_values)
+                    
+                    # Prepare aggregate statistics
+                    step_stats.update({
+                        'lomuon/beta': group['beta'],
+                        'lomuon/aggregate/singular_values_mean': all_singular_values.mean().item(),
+                        'lomuon/aggregate/singular_values_std': all_singular_values.std().item(),
+                        'lomuon/aggregate/singular_values_max': all_singular_values.max().item(),
+                        'lomuon/aggregate/singular_values_min': all_singular_values.min().item(),
+                        'lomuon/aggregate/U_norm_mean': sum(all_U_norms) / len(all_U_norms),
+                        'lomuon/aggregate/U_norm_std': torch.tensor(all_U_norms).std().item(),
+                        'lomuon/aggregate/V_norm_mean': sum(all_V_norms) / len(all_V_norms),
+                        'lomuon/aggregate/V_norm_std': torch.tensor(all_V_norms).std().item(),
+                        'lomuon/num_params_tracked': len(params_2d)
+                    })
+                    
+                    # Add parameter-specific stats
+                    step_stats.update(param_stats)
+    
     # step the optimizers and schedulers
     for opt, sched in zip(optimizers, schedulers):
         opt.step()
         if step != train_steps-1:
             sched.step()
+            
+    # Collect learning rate stats
+    if master_process:
+        step_stats.update({
+            "lr_optimizer1": schedulers[0].get_last_lr()[0],
+            "lr_optimizer2": schedulers[1].get_last_lr()[0],
+        })
+        # Single wandb log call per step with all statistics
+        wandb.log(step_stats, step=step)
+            
     # null the gradients
     model.zero_grad(set_to_none=True)
     # logging
     approx_time = training_time_ms + 1000 * (time.perf_counter() - t0)
     print0(f'step:{step+1}/{train_steps} train_time:{approx_time:.0f}ms step_avg:{approx_time/timed_steps:.2f}ms', console=True)
-
-    # Add learning rate logging
-    if master_process:
-        wandb.log({
-            "lr_optimizer1": schedulers[0].get_last_lr()[0],
-            "lr_optimizer2": schedulers[1].get_last_lr()[0],
-            # ... existing logging ...
-        })
 
 print0(f'peak memory consumption: {torch.cuda.max_memory_allocated() // 1024 // 1024} MiB')
 if master_process:
