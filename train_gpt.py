@@ -12,6 +12,7 @@ import subprocess
 import contextlib
 from dataclasses import dataclass
 import wandb
+from utils import print_model_parameters, get_model_size_stats
 
 import torch
 torch.empty(1, device='cuda', requires_grad=True).backward()
@@ -507,6 +508,13 @@ print0('='*100)
 # this originates from Karpathy's experiments.
 model = GPT(vocab_size=50304, num_layers=12, num_heads=6, model_dim=768)
 model = model.cuda()
+
+if master_process:
+    print_model_parameters(model, print0)
+    # Log model statistics to wandb
+    if args.wandb_project:
+        wandb.config.update(get_model_size_stats(model))
+
 if args.bf16_embeds:
     for m in model.modules():
         if isinstance(m, nn.Embedding):
