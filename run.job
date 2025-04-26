@@ -1,9 +1,9 @@
 #!/bin/tcsh
 #PBS -l ngpus=2
-#PBS -l ncpus=32
-#PBS -l walltime=30:00:00
+#PBS -l ncpus=16
+#PBS -l walltime=16:00:00
 #PBS -q workq@e5-cse-cbgpu01.eecscl.psu.edu
-#PBS -N modded-nanogpt-lomuon
+#PBS -N pt
 #PBS -M pxm5426@psu.edu 
 #PBS -m bea
 #PBS -l mem=60g
@@ -11,19 +11,14 @@
 #PBS -e pbs_results/
 cd $PBS_O_WORKDIR
 
-###
-##  You may have set your $PATH variable depending on your situation -- if your error output can't find commands, you probably need to set your $PATH
-#
-##  If you have your working environment/shell set up to support running your code, you can try using "qsub -V job-name" to submit your job using all of your current environmental variables.
-###
-setenv PATH /scratch/pxm5426/work/apps/conda/bin:/usr/local/sbin:/usr/local/bin:/opt/SUNWspro/bin:/usr/ccs/bin:/usr/bin:/usr/sfw/bin:/usr/ucb:/usr/sbin:/usr/lib:/sbin:/usr/dt/bin:/usr/java/bin:/bin:/usr/X11RC/bin:/usr/X11/bin:/opt/pbs/bin
-setenv HF_HOME  /scratch/pxm5426/work/hf_cache
+source ~/.tcshrc
 
-# Initialize conda for tcsh
-source /scratch/pxm5426/work/apps/conda/etc/profile.d/conda.csh
-conda init tcsh
 conda activate n-gpt2
 #python run.py --optimizer lomuon  --num-gpus 2 --config '{"lr": 0.0008, "eta1": 0.25, "eta2": 0.0, "rank": 32, "beta": 0.95, "use_current_projection": true, "use_ones_for_nonzero_s": false, "warmup_steps": 600, "beta_start": 0.65, "beta_end": 0.85, "eps": 1e-6, "max_value": 1000, "cooldown_frac": 0.8}'
 #python run.py --optimizer galore --num-gpus 4 --config '{"lr": 0.01, "weight_decay": 0.0, "group_params": {"rank": 32, "update_proj_gap": 150, "scale": 0.25, "proj_type": "std"}}'
 ## python -m unittest test_momentum_factorized_sgd.py
-python run.py --optimizer lomuon --num-gpus 2 --config '{"lr": 0.01, "eta1": 0.25, "eta2": 0.0, "rank": 32, "beta": 0.95, "use_current_projection": true, "use_ones_for_nonzero_s": false, "warmup_steps": 300, "beta_start": 0.65, "beta_end": 0.85, "eps": 1e-4, "max_value": 100}'
+python run.py --optimizer lomuon --num-gpus 2 \
+  --config '{"lr": 0.01, "eta1": 0.25, "eta2": 0.0, "rank": 32, "beta": 0.95, "use_current_projection": true, "use_ones_for_nonzero_s": false, "warmup_steps": 300, "beta_start": 0.65, "beta_end": 0.85, "eps": 1e-4, "max_value": 100}' \
+  --mem-prof --mem-start-step 20 --mem-end-step 23
+# Example with early CUDA memory snapshot at step 100
+#python run.py --optimizer muon --num-gpus 2 --mem-prof --mem-snap-step 100

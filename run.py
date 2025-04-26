@@ -97,6 +97,10 @@ def run_training(
     config_path: Optional[str] = None,
     config_override: Optional[str] = None,
     num_gpus: int = 1,
+    mem_prof: bool = False,
+    mem_snap_step: Optional[int] = None,
+    mem_start_step: Optional[int] = None,
+    mem_end_step: Optional[int] = None,
 ) -> None:
     """Run the training script with the specified configuration."""
     
@@ -135,6 +139,16 @@ def run_training(
         except json.JSONDecodeError:
             raise ValueError("Invalid JSON in config override")
     
+    # Add memory profiling flags if requested
+    if mem_prof:
+        cmd.append("--mem-prof")
+        if mem_snap_step is not None:
+            cmd.extend(["--mem-snap-step", str(mem_snap_step)])
+        if mem_start_step is not None:
+            cmd.extend(["--mem-start-step", str(mem_start_step)])
+        if mem_end_step is not None:
+            cmd.extend(["--mem-end-step", str(mem_end_step)])
+    
     # Set up environment
     env = os.environ.copy()
     env["PYTHONPATH"] = f"{env.get('PYTHONPATH', '')}:."
@@ -157,6 +171,10 @@ def main():
                       help='Number of GPUs to use')
     parser.add_argument('--list-configs', action='store_true',
                       help='List available optimizer configurations')
+    parser.add_argument('--mem-prof', action='store_true', help='Enable CUDA memory profiling (rank0)')
+    parser.add_argument('--mem-snap-step', type=int, help='Step number to dump early memory snapshot (requires --mem-prof)')
+    parser.add_argument('--mem-start-step', type=int, help='Step number to start memory recording (requires --mem-prof)')
+    parser.add_argument('--mem-end-step', type=int, help='Step number to stop memory recording and snapshot (requires --mem-start-step)')
     
     args = parser.parse_args()
     
@@ -177,6 +195,10 @@ def main():
             config_path=args.config_path,
             config_override=args.config,
             num_gpus=args.num_gpus,
+            mem_prof=args.mem_prof,
+            mem_snap_step=args.mem_snap_step,
+            mem_start_step=args.mem_start_step,
+            mem_end_step=args.mem_end_step,
         )
     except Exception as e:
         print(f"Error: {str(e)}")

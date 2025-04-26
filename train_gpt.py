@@ -13,6 +13,8 @@ import contextlib
 from dataclasses import dataclass
 import wandb
 from utils import print_model_parameters, get_model_size_stats
+import pickle
+from pathlib import Path
 
 import torch
 torch.empty(1, device='cuda', requires_grad=True).backward()
@@ -449,6 +451,10 @@ parser.add_argument('--config', type=str, help='JSON string with optimizer confi
 parser.add_argument('--config-path', type=str, help='Path to optimizer config YAML file')
 parser.add_argument('--run-name', type=str, help='Name for the Wandb run')
 parser.add_argument('--no-momentum-warmup', action='store_true', help='Disable momentum warmup for Muon/LoMuon')
+parser.add_argument('--mem-prof', action='store_true', help='Record full CUDA memory history and dump a snapshot.')
+parser.add_argument('--mem-snap-step', type=int, default=None, help='Which training step to capture an early memory snapshot (requires --mem-prof)')
+parser.add_argument('--mem-start-step', type=int, default=None, help='Step number to start memory recording (requires --mem-prof)')
+parser.add_argument('--mem-end-step', type=int, default=None, help='Step number to stop memory recording and snapshot (requires --mem-start-step)')
 cmd_args = parser.parse_args()
 
 args = Hyperparameters()
@@ -466,10 +472,15 @@ dist.init_process_group(backend='nccl', device_id=torch.device(local_rank))
 dist.barrier()
 master_process = (rank == 0) # this process will do logging, checkpointing etc.
 
+# Helper run id for logs/snapshots
+run_id = os.getenv('RUN_ID', str(uuid.uuid4()))  # used for log/snapshot folder
+
+# Flag to track if recording has begun when using start/end range
+started_recording = False
+
 # begin logging
 logfile = None
 if master_process:
-    run_id = uuid.uuid4()
     os.makedirs('logs', exist_ok=True)
     logfile = f'logs/{run_id}.txt'
     print(logfile)
@@ -700,7 +711,51 @@ for step in range(train_steps + 1):
             # ... existing logging ...
         })
 
+    # Optionally capture an early memory snapshot at a user-specified step
+    if master_process and cmd_args.mem_prof and cmd_args.mem_snap_step is not None and step == cmd_args.mem_snap_step:
+        snap = torch.cuda.memory._snapshot()  # freeze history so far
+        out_dir = Path('logs') / run_id
+        out_dir.mkdir(parents=True, exist_ok=True)
+        snap_file = out_dir / f"mem_snapshot_step{step:06d}.pkl"
+        with open(snap_file, 'wb') as f:
+            pickle.dump(snap, f)
+        print(f"Early memory snapshot saved to {snap_file} — load it at https://pytorch.org/memory_viz", flush=True)
+        # stop recording to save memory; no final snapshot
+        torch.cuda.memory._record_memory_history(enabled=None)
+        cmd_args.mem_prof = False  # prevent later snapshot logic
+
+    # Deferred start of recording
+    if master_process and cmd_args.mem_prof and not started_recording and cmd_args.mem_start_step is not None and step == cmd_args.mem_start_step:
+        torch.cuda.memory._record_memory_history(enabled='all')
+        started_recording = True
+        print(f'CUDA-memory history recording ENABLED ⏺️ at step {step}', flush=True)
+
+    # Stop recording at mem_end_step
+    if master_process and started_recording and cmd_args.mem_end_step is not None and step == cmd_args.mem_end_step:
+        snap = torch.cuda.memory._snapshot()
+        out_dir = Path('logs') / run_id
+        out_dir.mkdir(parents=True, exist_ok=True)
+        snap_file = out_dir / f"mem_snapshot_range_{cmd_args.mem_start_step:06d}_{cmd_args.mem_end_step:06d}.pkl"
+        with open(snap_file, 'wb') as f:
+            pickle.dump(snap, f)
+        print(f"Range memory snapshot saved to {snap_file} — load it at https://pytorch.org/memory_viz", flush=True)
+        torch.cuda.memory._record_memory_history(enabled=None)
+        started_recording = False
+        cmd_args.mem_prof = False  # disable to skip final snapshot logic
+
 print0(f'peak memory consumption: {torch.cuda.max_memory_allocated() // 1024 // 1024} MiB')
+if master_process and cmd_args.mem_prof and cmd_args.mem_snap_step is None and cmd_args.mem_end_step is None:
+    try:
+        snap = torch.cuda.memory._snapshot()  # ⏸️ freeze history
+        out_dir = Path('logs') / run_id
+        out_dir.mkdir(parents=True, exist_ok=True)
+        tag = f"step{step:06d}" if 'step' in locals() else 'final'
+        snap_file = out_dir / f"mem_snapshot_{tag}.pkl"
+        with open(snap_file, 'wb') as f:
+            pickle.dump(snap, f)
+        print(f"Memory snapshot saved to {snap_file} — load it at https://pytorch.org/memory_viz", flush=True)
+    finally:
+        torch.cuda.memory._record_memory_history(enabled=None)  # always turn off
 if master_process:
     wandb.finish()
 dist.destroy_process_group()
