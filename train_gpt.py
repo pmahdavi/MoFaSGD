@@ -538,7 +538,10 @@ def get_hidden_matrix_optimizer(params, optimizer_name):
     config = args.optimizer_config
     
     if optimizer_name.lower() == 'muon':
-        return Muon(params, **config)
+        # Filter out non-Muon parameters to avoid unexpected keyword errors
+        muon_config = {k: v for k, v in config.items() 
+                      if k in ['lr', 'momentum', 'nesterov', 'ns_steps']}
+        return Muon(params, **muon_config)
     elif optimizer_name.lower() == 'adam':
         return torch.optim.Adam(params, **config)
     elif optimizer_name.lower() == 'adamw':
