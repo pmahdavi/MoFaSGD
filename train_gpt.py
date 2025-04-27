@@ -543,11 +543,20 @@ def get_hidden_matrix_optimizer(params, optimizer_name):
                       if k in ['lr', 'momentum', 'nesterov', 'ns_steps']}
         return Muon(params, **muon_config)
     elif optimizer_name.lower() == 'adam':
-        return torch.optim.Adam(params, **config)
+        # Filter out non-Adam parameters
+        adam_config = {k: v for k, v in config.items()
+                     if k in ['lr', 'betas', 'eps', 'weight_decay', 'fused']}
+        return torch.optim.Adam(params, **adam_config)
     elif optimizer_name.lower() == 'adamw':
-        return torch.optim.AdamW(params, **config)
+        # Filter out non-AdamW parameters
+        adamw_config = {k: v for k, v in config.items()
+                      if k in ['lr', 'betas', 'eps', 'weight_decay', 'fused']}
+        return torch.optim.AdamW(params, **adamw_config)
     elif optimizer_name.lower() == 'sgd':
-        return torch.optim.SGD(params, **config)
+        # Filter out non-SGD parameters
+        sgd_config = {k: v for k, v in config.items()
+                    if k in ['lr', 'momentum', 'dampening', 'weight_decay', 'nesterov']}
+        return torch.optim.SGD(params, **sgd_config)
     elif optimizer_name.lower() == 'galore':
         # Extract GaLore-specific parameters for param groups
         group_params = config.get('group_params', {})
