@@ -573,8 +573,28 @@ def get_hidden_matrix_optimizer(params, optimizer_name):
             'lr': config.get('lr', 0.02),
             'betas': config.get('betas', (0.8, 0.95)),
             'weight_decay': config.get('weight_decay', 0.0),
-            'eps': config.get('eps', 1e-8)
+            'eps': config.get('eps', 1e-8),
+            'no_deprecation_warning': True
         }
+        
+        # Add fused parameter if it exists in the config
+        if 'fused' in config:
+            # Pass the fused parameter to both the optimizer params and the group params
+            fused_value = config.get('fused', False)
+            optimizer_params['fused'] = fused_value
+            galore_group['fused'] = fused_value
+            print0(f"Using GaLoreAdamW with fused={fused_value}")
+            # Add additional debug prints that will definitely show up
+            print(f"\n{'*' * 80}")
+            print(f"GALORE OPTIMIZER DEBUG: fused parameter is set to {fused_value}")
+            print(f"optimizer_params={optimizer_params}")
+            print(f"galore_group parameters: rank={galore_group['rank']}, update_proj_gap={galore_group['update_proj_gap']}, scale={galore_group['scale']}, fused={galore_group.get('fused', False)}")
+            print(f"{'*' * 80}\n")
+        else:
+            # Add debug print for when fused is NOT in the config
+            print(f"\n{'*' * 80}")
+            print(f"GALORE OPTIMIZER DEBUG: fused parameter is NOT SET in the config!")
+            print(f"{'*' * 80}\n")
         
         return GaLoreAdamW([galore_group], **optimizer_params)
     elif optimizer_name.lower() == 'lomuon':
