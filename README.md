@@ -31,7 +31,7 @@ This codebase is built upon the [modded-nanogpt](https://github.com/KellerJordan
 
 ## Running Paper Experiments
 
-This repository allows for the execution of the **NanoGPT pre-training experiments** (Section 5.1) from the paper.
+This repository allows for the execution of the **NanoGPT pre-training experiments** from the paper.
 
 ### How it Works
 
@@ -41,7 +41,7 @@ The `run.py` script automatically loads the base configuration for the chosen op
 
 #### MoFaSGD (Ours)
 
-This command runs the `MoFaSGD` experiment with rank 16 on 4 GPUs. It loads the base settings from `configs/optimizers/mfsgd.yaml` and applies the specific hyperparameters from the paper as overrides.
+This command runs the `MoFaSGD` experiment with rank 16 on 4 GPUs. It loads the base settings from `configs/optimizers/mfsgd.yaml` and applies the specific hyperparameters overrides for rank 16 setting.
 
 ```bash
 python run.py --optimizer mfsgd --num-gpus 4 \
@@ -50,7 +50,7 @@ python run.py --optimizer mfsgd --num-gpus 4 \
 
 #### GaLore (Baseline)
 
-This command runs the `GaLore` baseline experiment with rank 16. It loads base settings from `configs/optimizers/galore.yaml` and applies the specific overrides.
+This command runs the `GaLore` baseline experiment with rank 16. It loads base settings from `configs/optimizers/galore.yaml` and applies the specific overrides for rank 16 setting.
 
 ```bash
 python run.py --optimizer galore --num-gpus 4 \
