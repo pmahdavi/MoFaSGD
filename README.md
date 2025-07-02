@@ -58,6 +58,11 @@ python run.py --optimizer galore --num-gpus 4 \
 ```
 
 
+## LLaMA-Factory Implementation
+
+For the instruction-tuning experiments on LLaMA-3.1, as detailed in the paper, please see our other repository: [pmahdavi/llama-factory-mfsgd](https://github.com/pmahdavi/llama-factory-mfsgd). That repository contains the implementation of MoFaSGD within the LLaMA-Factory framework.
+
+
 ## Citation
 
 If you find our work useful in your research, please consider citing our paper:
