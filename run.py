@@ -50,7 +50,7 @@ def generate_run_name(optimizer: str, config: Dict[Any, Any]) -> str:
     if optimizer in ['sgd', 'muon']:
         momentum = config.get('momentum', 'unknown_mom')
         extra_params.append(f"mom{momentum}")
-    elif optimizer == 'lomuon':
+    elif optimizer == 'mfsgd':
         rank = config.get('rank', 'unknown_rank')
         beta = config.get('beta', 'unknown_beta')
         eta1 = config.get('eta1', 'unknown_eta1')
@@ -60,7 +60,7 @@ def generate_run_name(optimizer: str, config: Dict[Any, Any]) -> str:
         nesterov = config.get('nesterov', False)
         extra_params.extend([f"rank{rank}", f"beta{beta}", f"eta1_{eta1}", f"eta2_{eta2}", 
                            f"curr_proj_{use_current}", f"use_ones_{use_ones}", f"nesterov_{nesterov}"])
-        # Add eps and max_value for LoMuon
+        # Add eps and max_value for MFSGD
         eps = config.get('eps', 'unknown_eps')
         max_value = config.get('max_value', 'unknown_max')
         extra_params.extend([f"eps{eps}", f"max{max_value}"])
@@ -105,7 +105,7 @@ def run_training(
     """Run the training script with the specified configuration."""
     
     # Validate optimizer choice
-    valid_optimizers = ['muon', 'adam', 'adamw', 'sgd', 'galore', 'lomuon']
+    valid_optimizers = ['muon', 'adam', 'adamw', 'sgd', 'galore', 'mfsgd']
     if optimizer.lower() not in valid_optimizers:
         raise ValueError(f"Invalid optimizer. Must be one of: {', '.join(valid_optimizers)}")
     
@@ -161,7 +161,7 @@ def run_training(
 def main():
     parser = argparse.ArgumentParser(description='Run GPT training with different optimizers and configurations')
     parser.add_argument('--optimizer', type=str, default='muon',
-                      choices=['muon', 'adam', 'adamw', 'sgd', 'galore', 'lomuon'],
+                      choices=['muon', 'adam', 'adamw', 'sgd', 'galore', 'mfsgd'],
                       help='Optimizer to use')
     parser.add_argument('--config-path', type=str,
                       help='Path to YAML config file')

@@ -1,4 +1,0 @@
-lr: 0.05
-momentum: 0.9
-nesterov: true
-cooldown_frac: 0.4 

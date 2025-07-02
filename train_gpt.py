@@ -396,7 +396,7 @@ class Hyperparameters:
     bf16_embeds = True
     optimizer_name = 'muon'  # Options: 'muon', 'adam', 'adamw', 'sgd'
     optimizer_config_path = None  # Path to optimizer config YAML file
-    use_momentum_warmup = True  # Whether to use momentum warmup for Muon/LoMuon
+    use_momentum_warmup = True  # Whether to use momentum warmup for Muon/MFSGD
     # evaluation and logging
     val_loss_every = 20 # every how many steps to evaluate val loss? 0 for only at the end
     val_tokens = 10485760 # how many tokens of validation data? it's important to keep this fixed for consistent comparisons
@@ -450,11 +450,12 @@ parser.add_argument('--optimizer', type=str, help='Optimizer to use (muon, adam,
 parser.add_argument('--config', type=str, help='JSON string with optimizer configuration overrides')
 parser.add_argument('--config-path', type=str, help='Path to optimizer config YAML file')
 parser.add_argument('--run-name', type=str, help='Name for the Wandb run')
-parser.add_argument('--no-momentum-warmup', action='store_true', help='Disable momentum warmup for Muon/LoMuon')
+parser.add_argument('--no-momentum-warmup', action='store_true', help='Disable momentum warmup for Muon/MFSGD')
 parser.add_argument('--mem-prof', action='store_true', help='Record full CUDA memory history and dump a snapshot.')
 parser.add_argument('--mem-snap-step', type=int, default=None, help='Which training step to capture an early memory snapshot (requires --mem-prof)')
 parser.add_argument('--mem-start-step', type=int, default=None, help='Step number to start memory recording (requires --mem-prof)')
 parser.add_argument('--mem-end-step', type=int, default=None, help='Step number to stop memory recording and snapshot (requires --mem-start-step)')
+parser.add_argument('--is-resuming', action='store_true', help='Flag to indicate if the run is resuming')
 cmd_args = parser.parse_args()
 
 args = Hyperparameters()
@@ -597,7 +598,7 @@ def get_hidden_matrix_optimizer(params, optimizer_name):
             print(f"{'*' * 80}\n")
         
         return GaLoreAdamW([galore_group], **optimizer_params)
-    elif optimizer_name.lower() == 'lomuon':
+    elif optimizer_name.lower() == 'mfsgd':
         return MomentumFactorizedSGD(params, 
                                    lr=config.get('lr', 0.01),
                                    rank=config.get('rank', 2),
@@ -710,13 +711,13 @@ for step in range(train_steps + 1):
     assert len(inputs_train) <= micro_bs or len(inputs_train) % micro_bs == 0
     for micro_inputs_train, micro_targets_train in zip(inputs_train.split(micro_bs), targets_train.split(micro_bs)):
         ddp_model(micro_inputs_train, micro_targets_train, sliding_window_num_blocks).backward()
-    # momentum warmup for Muon/LoMuon
+    # momentum warmup for Muon/MFSGD
     if args.use_momentum_warmup:
         if args.optimizer_name.lower() == 'muon':
             frac = min(step/300, 1)
             for group in optimizer2.param_groups:
                 group['momentum'] = (1 - frac) * 0.85 + frac * 0.95
-        elif args.optimizer_name.lower() == 'lomuon':
+        elif args.optimizer_name.lower() == 'mfsgd':
             # Get warmup parameters from config
             warmup_steps = args.optimizer_config.get('warmup_steps', 600)  # default to original value
             beta_start = args.optimizer_config.get('beta_start', 0.15)    # default to original value
