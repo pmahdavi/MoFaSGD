@@ -68,12 +68,15 @@ For the instruction-tuning experiments on LLaMA-3.1, as detailed in the paper, p
 If you find our work useful in your research, please consider citing our paper:
 
 ```bibtex
-@article{mahdavinia2025mofasgd,
-  title={Low-rank Momentum Factorization for Memory Efficient Training},
-  author={Mahdavinia, Pouria and Mahdavi, Mehrdad},
-  journal={Transactions on Machine Learning Research},
-  year={2025},
-  url={https://openreview.net/forum?id=W3D3TVo9a3}
+@article{
+mahdavinia2025lowrank,
+title={Low-rank Momentum Factorization for Memory Efficient Training},
+author={Pouria Mahdavinia and Mehrdad Mahdavi},
+journal={Transactions on Machine Learning Research},
+issn={2835-8856},
+year={2025},
+url={https://openreview.net/forum?id=W3D3TVo9a3},
+note={}
 }
 ```
 
